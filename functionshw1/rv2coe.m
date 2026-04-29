@@ -1,4 +1,8 @@
 function [a, e_norm, Omega, i, omega, theta_0] = rv2coe(r0,v0,mu_E)
+% GOAL
+% take vectors r0, v0 at a certain moment, as seen from Earth Centered Inertial reference frame
+% and express the classical orbital parameters of that specific orbit 
+
 % INPUTS
 % r0 - position vector (as seen from ECI ref. frame) [km]
 % v0 - velocity vector (as seen from ECI ref. frame) [km/s]
@@ -54,3 +58,9 @@ omega = mod(atan2(dot(e_normalised, g_vect), dot(e_normalised, n_normalised)), 2
 
 % theta_0 = mod(atan2(dot(r0, e_normalised),dot(r0, p_vect)), 2*pi);
 theta_0 = mod(atan2(dot(r0, p_vect), dot(r0, e_normalised)), 2*pi);
+
+p_vector = e_vect/e_norm;
+w_vector = h_vect/h_norm;
+q_vector = cross(w_vector, p_vector);
+
+end
