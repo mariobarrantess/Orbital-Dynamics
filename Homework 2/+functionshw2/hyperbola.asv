@@ -1,0 +1,46 @@
+function [theta, Dv] = hyperbola(mu, a, e, Omega, i, omega, vh)
+% INPUTS
+% mu - Gravitational parameter of central body [km^3/s^2]
+% a - Semi-major axis of parking orbit [km]
+% e - Eccentricity of parking orbit [-]
+% Omega - RAAN of parking orbit [rad]
+% i - Inclination of parking orbit [rad]
+% omega - Argument of periapsis of parking orbit [rad]
+% vh - Velocity vector at infinity [km/s]
+% OUTPUTS
+% theta - True anomaly of burn point [rad]
+% Dv - Injection impulse vector [km/s]
+
+theta = linspace(0, 2*pi, 360);
+
+v_inf = norm(vh); % hyperbolic excess speed [km/s]
+a_hyp = -mu/v_inf^2; % hyperbola semi-major axis [km] (negative)
+
+% Perifocal basis of parking orbit - line of nodes
+N = cross([0;0;1], [sin(i)*sin(Omega); -sin(i)*cos(Omega); cos(i)]);
+if norm(N) < 1e-10
+    N = [1;0;0];
+end
+N = N/norm(N); % unitary vector
+
+% Rotation matrix from orbit to ECI ref.frame
+R_ORB2ECI = [ cos(Omega)*cos(omega)-sin(Omega)*sin(omega)*cos(i),  -cos(Omega)*sin(omega)-sin(Omega)*cos(omega)*cos(i),  sin(Omega)*sin(i);
+               sin(Omega)*cos(omega)+cos(Omega)*sin(omega)*cos(i),  -sin(Omega)*sin(omega)+cos(Omega)*cos(omega)*cos(i), -cos(Omega)*sin(i);
+               sin(omega)*sin(i),                                    cos(omega)*sin(i),                                   cos(i)   ];
+
+% Orbit plane vector basis - PQW
+% p → points toward periapsis (in direction of eccentricity vector e)
+% q → 90° ahead of periapsis in the orbital plane (in direction of motion)
+% w → perpendicular to orbital plane (direction of angular momentum h/|h|)
+p = R_PERI2ECI(:,1);   % eccentricity direction
+q = R_PERI2ECI(:,2);   % 90 deg ahead in orbit plane
+w = R_PERI2ECI(:,3);   % orbital plane normal
+
+
+
+% Loop over 360 candidate burn points
+theta_vec   = linspace(0, 2*pi, 360);
+dv_mag      = inf(1, 360);
+Dv_all      = zeros(3, 360);
+
+end

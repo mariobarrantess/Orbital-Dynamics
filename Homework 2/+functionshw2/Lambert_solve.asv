@@ -1,0 +1,239 @@
+function [a, e, Omega, i, omega, theta1, theta2, eT_real] = Lambert_solve(mu, r1, r2, Dt, k)
+
+% INPUTS
+% mu - Gravitational parameter of central body [km3/m2]
+% r1 - Position vector at time t1 [km] 
+% r2 - Position vector at time t2 [km]
+% eT - Transverse eccentricity component
+% Dt - Time between position 1 and position 2 [s]
+% k - Positive direction of the orbital plane normal (used to select between short & long arc solutions)
+
+% OUTPUTS
+% a - semi mayor axis [km]
+% e - eccentricity [km]
+% Omega - Right ascension of the ascending node = RAAN [rad]
+% i - Inclination [rad]
+% omega - Argument of the periapsis [rad]
+% theta1 - True anomaly at t1 [rad]
+% theta2 - True anomaly at t2 [rad]
+
+% Solve Lambert's problem using the previous two functions. Internally, the function should use the bisection method. 
+% Restrict the search to elliptic solutions - 0<e<1
+% The units of input and output arguments must be the same as in previous functions.
+
+% Position
+R1 = norm(r1);
+R2 = norm(r2);
+
+% Chord vector
+cc = r2 - r1;
+c = norm(cc);
+
+% Vector basis (unitary)
+kk = k/norm(k);
+ii = cc/c;
+jj = cross(kk,ii);
+
+% Eccentricity component
+eF = (R1 - R2)/c;
+
+aF = (R1+R2)/2; % semimajor axis of fundamental ellipse [km]
+
+pF = aF*(1-eF^2); % semi-latum rectum of fundamental ellipse [km]
+
+eTP = sqrt(1 - eF^2); % parabolic limit - from notes p.47
+eT_lo = -eTP + 1e-6;
+eT_hi =  eTP - 1e-6;
+
+% Check if solution exists in [eT_lo, eT_hi]
+[a_lo, e_lo, ~, ~, ~, th1_lo, th2_lo] = functionshw2.Lambert_conic(r1, r2, eT_lo, k);
+tof_lo = functionshw2.tof(mu, a_lo, e_lo, th1_lo, th2_lo);
+err_lo = tof_lo - Dt;
+
+[a_hi, e_hi, ~, ~, ~, th1_hi, th2_hi] = functionshw2.Lambert_conic(r1, r2, eT_hi, k);
+tof_hi = functionshw2.tof(mu, a_hi, e_hi, th1_hi, th2_hi);
+err_hi = tof_hi - Dt;
+
+% --- Scan interior to find tof minimum ---
+n_scan = 60;
+eT_scan = linspace(eT_lo, eT_hi, n_scan);
+tof_scan = inf(1, n_scan);
+
+for ks = 1:n_scan
+    [a_k, e_k, ~,~,~, th1_k, th2_k] = functionshw2.Lambert_conic(r1, r2, eT_scan(ks), k);
+    if ~isnan(a_k) && a_k > 0 && e_k < 1
+        tk = functionshw2.tof(mu, a_k, e_k, th1_k, th2_k);
+        if isfinite(tk) && tk > 0
+            tof_scan(ks) = tk;
+        end
+    end
+end
+
+[tof_min_val, idx_min] = min(tof_scan);
+eT_star = eT_scan(idx_min);
+
+% If minimum tof > desired Dt: no elliptic solution exists
+if ~isfinite(tof_min_val) || tof_min_val > Dt
+    a = NaN; e = NaN; Omega = NaN; i = NaN; 
+    omega = NaN; theta1 = NaN; theta2 = NaN; eT_real = NaN;
+    return
+end
+
+% Now bracket correctly:
+% Left half  [eT_lo,  eT_star]: tof ∞ → tof_min  (decreasing)
+% Right half [eT_star, eT_hi]: tof tof_min → ∞   (increasing)
+% Both halves contain a root (since tof_min < Dt < ∞).
+% Use the LEFT half (gives the lower-eccentricity solution):
+
+eT_lo_b  = eT_lo;
+eT_hi_b  = eT_star;
+err_lo_b = tof_lo - Dt;        % > 0 (tof_lo ≈ ∞)
+err_hi_b = tof_min_val - Dt;   % < 0 (tof_min < Dt)
+
+% --- Bisect on the properly-bracketed interval ---
+for iter = 1:max_iter
+    eT_real = (eT_lo_b + eT_hi_b) / 2;
+    [a_mid, e_mid, ~,~,~, th1_mid, th2_mid] = functionshw2.Lambert_conic(r1, r2, eT_real, k);
+    tof_mid = functionshw2.tof(mu, a_mid, e_mid, th1_mid, th2_mid);
+    err_mid = tof_mid - Dt;
+
+    if abs(err_mid) < tol; break; end
+
+    if err_lo_b * err_mid < 0
+        eT_hi_b  = eT_real;
+        err_hi_b = err_mid;
+    else
+        eT_lo_b  = eT_real;
+        err_lo_b = err_mid;
+    end
+end
+
+% bisection method to find eT that makes tof(eT)=Dt --> tof(eT)-Dt=0
+tol = 1e-5;
+max_iter = 200;
+
+% for iter = 1:max_iter
+%     eT_real = (eT_lo + eT_hi) / 2;
+% 
+%     % Evaluate tof at midpoint
+%     [a_mid, e_mid, ~, ~, ~, theta1_mid, theta2_mid] = functionshw2.Lambert_conic(r1, r2, eT_real, k);
+%     tof_real = functionshw2.tof(mu, a_mid, e_mid, theta1_mid, theta2_mid);
+% 
+%     err = tof_real - Dt; 
+%     if abs(err) < tol %if error<tol we have finished
+%         break;
+%     end
+% 
+%     % to determine if tof is monotonic
+%     [a_lo, e_lo, ~, ~, ~, th1_lo, th2_lo] = functionshw2.Lambert_conic(r1, r2, eT_lo, k);
+%     tof_lo = functionshw2.tof(mu, a_lo, e_lo, th1_lo, th2_lo);
+% 
+%     if (tof_lo - Dt) * err < 0
+%         eT_hi = eT_real;
+%     else
+%         eT_lo = eT_real;
+%     end
+% end
+% 
+% if iter == max_iter && abs(err) > tol
+%     warning('Lambert_solve: bisection did not converge. err=%.2e, Dt=%.2f s', err, Dt);
+% end
+
+% for iter = 1:max_iter
+%     eT_real = (eT_lo + eT_hi) / 2;
+% 
+%     % Evaluate tof at midpoint
+%     [a_mid, e_mid, ~, ~, ~, theta1_mid, theta2_mid] = functionshw2.Lambert_conic(r1, r2, eT_real, k);
+%     tof_mid = functionshw2.tof(mu, a_mid, e_mid, theta1_mid, theta2_mid);
+%     err_mid = tof_mid - Dt; 
+% 
+%     if abs(err_mid) < tol
+%         break;
+%     end
+% 
+%     % Evaluate at lower bound (only once per iteration, or cache it)
+%     [a_lo, e_lo, ~, ~, ~, th1_lo, th2_lo] = functionshw2.Lambert_conic(r1, r2, eT_lo, k);
+%     tof_lo = functionshw2.tof(mu, a_lo, e_lo, th1_lo, th2_lo);
+%     err_lo = tof_lo - Dt;
+% 
+%     % Bisection: if errors have opposite signs, solution is in upper half
+%     if err_lo * err_mid < 0
+%         eT_hi = eT_real;  % solution is in [eT_lo, eT_real]
+%     else
+%         eT_lo = eT_real;  % solution is in [eT_real, eT_hi]
+%     end
+% end
+
+for iter = 1:max_iter
+    eT_real = (eT_lo + eT_hi) / 2;
+
+    [a_mid, e_mid, ~, ~, ~, th1_mid, th2_mid] = functionshw2.Lambert_conic(r1, r2, eT_real, k);
+    tof_mid = functionshw2.tof(mu, a_mid, e_mid, th1_mid, th2_mid);
+    err_mid = tof_mid - Dt;
+
+    if abs(err_mid) < tol
+        break;
+    end
+
+    if err_lo * err_mid < 0
+        eT_hi = eT_real;
+        err_hi = err_mid;
+    else
+        eT_lo = eT_real;
+        err_lo = err_mid;
+    end
+end
+
+if iter == max_iter && abs(err_mid) > tol
+    warning('Lambert_solve: bisection did not converge. err=%.2e, Dt=%.2f s', err_mid, Dt);
+end
+
+% % Eccentricity vector
+% ee = eF*ii + eT_real*jj;
+% e = norm(ee); %sqrt(eF^2 + eT^2);
+% e_unit = ee/e;
+
+% % Final solution with converged eT
+% [a, e, Omega, i, omega, theta1, theta2] = functionshw2.Lambert_conic(r1, r2, eT_real, k);
+
+% % alpha1 = acos(dot(r1,ii));
+% alpha1 = atan2(dot(cross(ii, r1/R1), kk), dot(ii, r1/R1));  
+% % alpha2 = acos(dot(r2,ii));
+% alpha2 = atan2(dot(cross(ii, r2/R2), kk), dot(ii, r2/R2));  
+% 
+% delta = atan2(eT, eF); % from simplifying e in delta=atan2(eT/e, eF/e);
+
+% theta1 = delta + alpha1;
+% theta2 = delta + alpha2;
+% Dtheta = theta2 - theta1;
+
+% Final solution with converged eT
+[a, e, Omega, i, omega, theta1, theta2] = functionshw2.Lambert_conic(r1, r2, eT_real, k);
+
+% Ensure positive Dtheta for diagnostic use
+Dtheta = mod(theta2 - theta1, 2*pi);
+
+% % Semi-latum rectum of ellipse w/ given eT
+% p = pF - eT * (R1*R2)/c * sin(Dtheta);
+
+% % Semi-major axis of ellipse w/ given eT
+% a = p/(1 - e^2);
+
+% from page 47 in class notes
+% eTP = sqrt(1 - eF^2);
+eTD = (pF*c)/(R1*R2*sin(Dtheta));
+if eT_real < eTP && eT_real > -eTP
+    % fprintf('\nOrbit is elliptical. Correct\n');
+elseif eT_real == -eTP || eT_real == eTP
+    fprintf('\nOrbit is a parabola only allowing short arc solution\n');
+elseif eT_real < -eTP
+    fprintf('\nHyperbolic short arcs\n')
+elseif eT_real > eTP && eT_real < eTD
+    fprintf('\nHyperbolic long arcs\n')
+elseif eT_real == eTD
+    fprintf('\np=0 and F=F´--> Pair of lines that intersect at the origin\n')
+elseif eT_real > eTD
+    fprintf('\nInadmissible hyperbolic solutions\n')
+end
+
+end
